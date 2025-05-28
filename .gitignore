@@ -1,3 +1,10 @@
 .venv/
 .idea/
-
+.env
+credentials.json
+udb.json
+client_token.json
+Test1.py
+google_tasks.db
+Test.py
+__pycache__/
