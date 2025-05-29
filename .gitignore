@@ -6,5 +6,6 @@ udb.json
 client_token.json
 Test1.py
 google_tasks.db
+usr_tasks.json
 Test.py
 __pycache__/

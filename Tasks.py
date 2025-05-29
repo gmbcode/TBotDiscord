@@ -193,8 +193,8 @@ class GoogleTasksClient:
 
     # Tasks Operations
 
-    def get_tasks(self, task_list_id: str, show_completed: bool = False,
-                  show_deleted: bool = False, show_hidden: bool = False,
+    def get_tasks(self, task_list_id: str, show_completed: bool = True,
+                  show_deleted: bool = False, show_hidden: bool = True,
                   max_results: Optional[int] = None, page_token: Optional[str] = None,
                   updated_min: Optional[str] = None, completed_min: Optional[str] = None,
                   completed_max: Optional[str] = None, due_min: Optional[str] = None,
