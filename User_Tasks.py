@@ -6,21 +6,26 @@ import os
 from dotenv import dotenv_values
 config = dotenv_values(".env")
 
-def load_local_db() -> dict[str, Any] | None:
+def load_local_db(nosync = False) -> dict[str, Any] | None:
     """Load local database and return local db dict"""
-    if not os.path.exists(config['USER_TASKS_DB']):
+    if not nosync:
+        db_selected = config['USER_TASKS_DB']
+    else:
+        db_selected = config['USER_NOSYNC_DB']
+    if not os.path.exists(db_selected):
         try :
-            with open(config['USER_TASKS_DB'], "w") as file:
+            with open(db_selected, "w") as file:
                 file.write("{}")
         except OSError:
             return None
 
     try:
-        with open(config['USER_TASKS_DB'], 'r') as f:
+        with open(db_selected, 'r') as f:
             data = json.load(f)
             return data
     except (json.JSONDecodeError, FileNotFoundError):
         return None
+
 def save_local_db(db) -> bool | None:
     """Save changed local db"""
     if not os.path.exists(config['USER_TASKS_DB']):

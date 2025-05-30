@@ -7,5 +7,7 @@ client_token.json
 Test1.py
 google_tasks.db
 usr_tasks.json
+usr_cat_priority.json
 Test.py
+db_nosync.json
 __pycache__/
