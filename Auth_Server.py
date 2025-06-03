@@ -1,5 +1,6 @@
 import json
 import os
+from bson.json_util import dumps
 import secrets
 import urllib.parse
 from datetime import datetime, timedelta
@@ -24,26 +25,30 @@ SCOPES = ["openid", "email", "profile","https://www.googleapis.com/auth/tasks"]
 
 # File to store OAuth data
 OAUTH_DATA_FILE = "udb.json"
-
-
-def load_oauth_data():
+from Mongo_Access import DB_Client
+db = DB_Client()
+auth = db.clt['TBot_DB']['auth']
+def load_oauth_data(user_id):
     """Load existing OAuth data from JSON file"""
-    if os.path.exists(OAUTH_DATA_FILE):
-        try:
-            with open(OAUTH_DATA_FILE, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return {}
-    return {}
+    usr = auth.find_one({"user.user_id" : user_id})
+    if usr is not None:
+        del usr['_id']
+    return usr
 
 
-def save_oauth_data(data):
+def save_oauth_data(user_id,data):
     """Save OAuth data to JSON file"""
-    existing_data = load_oauth_data()
-    existing_data.update(data)
+    try:
+        keys = list(data.keys())
+        uid = str(keys[0])
+        result = auth.update_one(
+            {"user.user_id" : user_id},  # Filter: documents that have uid field
+            {"$set": data},
+            upsert=True
+        )
+    except Exception as ex:
+        print(str(ex))
 
-    with open(OAUTH_DATA_FILE, 'w') as f:
-        json.dump(existing_data, f, indent=2, default=str)
 
 
 def generate_auth_url(user_id):
@@ -133,21 +138,21 @@ def oauth_callback():
 
         # OAuth Data to store
         oauth_data = {
-            user_id: {
+            "user" : {
                 "email": user_info.get('email'),
                 "access_token": tokens.get('access_token'),
                 "refresh_token": tokens.get('refresh_token'),
                 "expires_in": expires_in,
                 "expires_at": expires_at.isoformat(),
                 "state": state,
-                "user_id": user_id,
+                "user_id": str(user_id),
                 "created_at": datetime.now().isoformat(),
                 "user_info": user_info  # Store additional user info
             }
         }
 
         # Save to JSON file
-        save_oauth_data(oauth_data)
+        save_oauth_data(str(user_id),oauth_data)
 
         return f'''
         <h1>OAuth Success!</h1>
@@ -174,7 +179,13 @@ def oauth_callback():
 def view_data():
     """View stored OAuth data (To be removed on prod build)"""
     # TODO : Remove from prod build or add some admin access code
-    data = load_oauth_data()
+
+    d = auth.find({})
+    data = {}
+    for document in d:
+        del document['_id']
+        data.update(document)
+
 
     if not data:
         return "<h1>No OAuth data stored yet</h1><br><a href='/'>Home</a>"
@@ -201,8 +212,7 @@ def view_data():
 def get_user_data(user_id):
     """API endpoint to get specific user's OAuth data"""
     # TODO : Remove from prod build or add some admin access code
-    data = load_oauth_data()
-    user_data = data.get(user_id)
+    user_data = load_oauth_data(user_id)
 
     if not user_data:
         return jsonify({"error": "User not found"}), 404
@@ -214,7 +224,7 @@ def get_user_data(user_id):
 def refresh_token(user_id):
     """Refresh access token for a specific user"""
     # TODO : Remove from prod build or add some admin access code
-    data = load_oauth_data()
+    data = load_oauth_data(user_id)
     user_data = data.get(user_id)
 
     if not user_data or not user_data.get('refresh_token'):
@@ -247,7 +257,7 @@ def refresh_token(user_id):
         if 'refresh_token' in new_tokens:
             user_data['refresh_token'] = new_tokens['refresh_token']
 
-        save_oauth_data({user_id: user_data})
+        save_oauth_data(str(user_id),{"user": user_data})
 
         return f"Token refreshed successfully for user {user_id}. New expiration: {expires_at}"
 
@@ -256,4 +266,4 @@ def refresh_token(user_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    app.run(debug=True, host='0.0.0.0',port= 8080)

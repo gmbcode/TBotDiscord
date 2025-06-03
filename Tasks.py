@@ -4,7 +4,12 @@ import requests
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 from dotenv import dotenv_values
+
+from Mongo_Access import DB_Client
+from User import User
+
 config = dotenv_values(".env")
+
 
 class GoogleTasksClient:
     """
@@ -12,7 +17,7 @@ class GoogleTasksClient:
     and provides comprehensive methods for Google Tasks operations.
     """
 
-    def __init__(self, user_id: str, oauth_data_file: str = "udb.json"):
+    def __init__(self, user_id: str, client,oauth_data_file: str = "udb.json"):
         """
         Initialize the Google Tasks client for a specific user.
 
@@ -26,38 +31,29 @@ class GoogleTasksClient:
         self.client_id = config["GOOGLE_CLIENT_ID"]
         self.client_secret = config["GOOGLE_CLIENT_SECRET"]
         self.token_url = "https://oauth2.googleapis.com/token"
-
+        self.usr = User(self.user_id,client)
         self.user_data = self._load_user_data()
         if not self.user_data:
             raise ValueError(f"No OAuth data found for user_id: {user_id}")
 
     def _load_user_data(self) -> Optional[Dict]:
         """Load user OAuth data from JSON file."""
-        if not os.path.exists(self.oauth_data_file):
-            return None
-
         try:
-            with open(self.oauth_data_file, 'r') as f:
-                data = json.load(f)
-                return data.get(self.user_id)
-        except (json.JSONDecodeError, FileNotFoundError):
+            usr = self.usr
+            if usr.load_user_data():
+                return usr.udata["user"]
+            return None
+        except Exception as e:
             return None
 
     def _save_user_data(self):
-        """Save updated user data back to JSON file."""
+        """Save updated user data back to Mongo DB."""
         try:
-            # Load existing data
-            existing_data = {}
-            if os.path.exists(self.oauth_data_file):
-                with open(self.oauth_data_file, 'r') as f:
-                    existing_data = json.load(f)
-
-            # Update user data
-            existing_data[self.user_id] = self.user_data
-
-            # Save back to file
-            with open(self.oauth_data_file, 'w') as f:
-                json.dump(existing_data, f, indent=2, default=str)
+            usr = self.usr
+            if usr.user_exists():
+                usr.update_user_data(self.user_data)
+            else:
+                raise Exception(f"User {self.user_id} does not exist")
         except Exception as e:
             print(f"Error saving user data: {e}")
 
@@ -126,7 +122,6 @@ class GoogleTasksClient:
         if self._is_token_expired():
             if not self._refresh_access_token():
                 raise ValueError("Failed to refresh access token")
-
         return {
             "Authorization": f"Bearer {self.user_data['access_token']}",
             "Content-Type": "application/json"
@@ -402,14 +397,13 @@ if __name__ == "__main__":
     # Example usage
     try:
         # Initialize client for a specific user
-        client = GoogleTasksClient(user_id="585767830247571476")
-
+        dbc = DB_Client()
+        client = GoogleTasksClient("911657003477266462",dbc)
         # Get all task lists
         print("Task Lists:")
         task_lists = client.get_task_lists()
         for task_list in task_lists:
             print(f"- {task_list['title']} (ID: {task_list['id']})")
-
         if task_lists:
             task_list_id = task_lists[0]['id']
 

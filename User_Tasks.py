@@ -1,4 +1,7 @@
 import json
+
+from Mongo_Access import DB_Client
+
 from Tasks import GoogleTasksClient
 from User import User
 from typing import Any
@@ -8,63 +11,66 @@ from dotenv import dotenv_values
 config = dotenv_values(".env")
 
 
-def load_local_db(nosync=False) -> dict[str, Any] | None:
+def load_local_db(user_id : str,client : DB_Client,nosync=False) -> dict[str, Any] | None:
     """Load local database and return local db dict"""
     if not nosync:
-        db_selected = config['USER_TASKS_DB']
+        db_selected = 'tasks'
     else:
-        db_selected = config['USER_NOSYNC_DB']
-    if not os.path.exists(db_selected):
-        try:
-            with open(db_selected, "w") as file:
-                file.write("{}")
-        except OSError:
-            return None
+        db_selected = 'tasks_ns'
 
     try:
-        with open(db_selected, 'r') as f:
-            data = json.load(f)
-            return data
-    except (json.JSONDecodeError, FileNotFoundError):
+        client_inst = client
+        client = client_inst.clt
+        col = client['TBot_DB'][db_selected]
+        usr = col.find_one({"user.user_id" : user_id})
+        del client_inst
+        if usr is not None:
+            return usr
+        return None
+    except Exception as e:
         return None
 
 
-def save_local_db(db, nosync=False) -> bool | None:
+def save_local_db(user_id : str ,db, client : DB_Client,nosync=False) -> bool | None:
     """Save changed local db"""
     if not nosync:
-        db_selected = config['USER_TASKS_DB']
+        db_selected = 'tasks'
     else:
-        db_selected = config['USER_NOSYNC_DB']
-    if not os.path.exists(db_selected):
-        try:
-            with open(db_selected, "w") as file:
-                file.write("{}")
-        except OSError:
-            return None
+        db_selected = 'tasks_ns'
 
     try:
-        with open(db_selected, 'w') as f:
-            json.dump(db, f, indent=2, default=str)
-        return True
-    except (json.JSONDecodeError, FileNotFoundError):
+        client_inst = client
+        client = client_inst.clt
+        col = client['TBot_DB'][db_selected]
+        data = db
+        data["user"]["user_id"] = user_id
+        result = col.update_one(
+            {"user.user_id": user_id},  # Filter: documents that have uid field
+            {"$set": data},
+            upsert=True # Create if it does not exist
+        )
+        if result is not None:
+            return True
+        return False
+    except Exception as e:
         return None
 
 
-def sync_tasks_c2l(userid: str) -> None:
+def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
     """Sync cloud changes to local database"""
-    t_user = User(userid)
+    t_user = User(userid,client)
     if t_user.user_exists():
-        l_db = load_local_db()
-        l_db_ns = load_local_db(nosync=True)
+        l_db = load_local_db(userid,client)
+        l_db_ns = load_local_db(userid,client,nosync=True)
         u_set = True
-        if userid not in l_db:
-            l_db[userid] = {}
-        if userid not in l_db_ns:
-            l_db_ns[userid] = {}
+        if l_db is None:
+            l_db = {}
+        if l_db_ns is None:
+            l_db_ns = {}
             u_set = False
-            l_db_ns[userid]["categories"] = []
+            l_db_ns["categories"] = []
 
-        t_client = GoogleTasksClient(userid)
+        t_client = GoogleTasksClient(userid,client)
         tasklists = []
         tasks = []
         tasks_ns = []
@@ -78,27 +84,28 @@ def sync_tasks_c2l(userid: str) -> None:
             for st in tasks:
                 tasks_ns.append({"id": st["id"], "title": st["title"], "status": st["status"], "priority": "not_set",
                                  "category": "not_set"})
-            l_db_ns[userid]["tasks"] = tasks_ns
-            save_local_db(l_db_ns, nosync=True)
-        l_db[userid]['tasklists'] = tasklists
-        l_db[userid]['tasks'] = tasks
-        save_local_db(l_db)
+            l_db_ns["tasks"] = tasks_ns
+            save_local_db(userid,l_db_ns,client,nosync=True)
+        l_db['tasklists'] = tasklists
+        l_db['tasks'] = tasks
+        save_local_db(userid,l_db,client)
 
     else:
         raise Exception(f"User {userid} does not exist")
 
 
-def create_task_synced(userid: str, task: dict[str, Any], task_list_id: str) -> None:
+def create_task_synced(userid: str, task: dict[str, Any], task_list_id: str,db_client) -> None:
     """Create a task and sync immediately to local db"""
-    t_user = User(userid)
+    t_user = User(userid,db_client)
     if t_user.user_exists():
-        client = GoogleTasksClient(userid)
+        client = GoogleTasksClient(userid,db_client)
         client.create_task(task_list_id=task_list_id, title=task["title"], notes=task["notes"], due=task["due"])
-        sync_tasks_c2l(userid)
+        sync_tasks_c2l(userid,db_client)
     else:
         raise Exception(f"User {userid} does not exist")
 
 
 if __name__ == '__main__':
-    sync_tasks_c2l("585767830247571476")
+    client = DB_Client()
+    sync_tasks_c2l("585767830247571476",client)
     pass

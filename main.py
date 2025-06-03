@@ -3,19 +3,20 @@ import discord
 from discord.ext import commands
 from dotenv import dotenv_values
 from Auth_Server import generate_auth_url
-from User import User as TskUser
+import User
+TskUser = User.User
 from datetime import datetime, date, timedelta
 from Tasks import GoogleTasksClient
 from table2ascii import table2ascii
 from User_Tasks import sync_tasks_c2l, load_local_db, save_local_db
 from Misc_Methods import str_to_task
-
+from Mongo_Access import DB_Client
 config = dotenv_values(".env")
 TOKEN_DISCORD = config["DISCORD_BOT_TOKEN"]
 format_str = "Task Name Due Date(YYYY-MM-DD) Notes(if any)\nExample : my task 2025-05-30 Some details about my task"
 intents = discord.Intents.default()
 intents.message_content = True
-
+CLIENT = DB_Client()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
 
@@ -33,11 +34,12 @@ async def on_ready():
 
 
 @bot.event
-async def on_message(message):
+async def on_message(message : discord.Message):
     await bot.process_commands(message)
     if message.channel.type == discord.ChannelType.private:
         if message.content.startswith('initialise'):
-            us = TskUser(str(message.author.id))
+            user_id = str(message.author.id)
+            us = TskUser(user_id, CLIENT)
             if us.user_exists():
                 await message.channel.send(f"You are already initialised")
                 return
@@ -57,24 +59,25 @@ async def on_message(message):
 
 
 @bot.command()
-async def list_tasks(ctx):
+async def list_tasks(ctx : discord.ext.commands.Context):
     """Function to list all the users tasks , the tasklist and their due time"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             await ctx.channel.send(f"Loading task list for user {ctx.author.name} (Synced from Google Tasks)",
                                    delete_after=10)
             try:
-                clt = GoogleTasksClient(user_id=str(ctx.author.id))
+                clt = GoogleTasksClient(user_id,CLIENT)
                 tl = clt.get_task_lists()
             except Exception as e:
                 await ctx.channel.send("Error fetching user tasks")
                 return
             headings = ['Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
             resp = []
-            sync_tasks_c2l(str(ctx.author.id))
-            ns_db = load_local_db(nosync = True)
-            ns_db = ns_db[str(ctx.author.id)]['tasks']
+            sync_tasks_c2l(user_id,CLIENT)
+            ns_db = load_local_db(user_id,CLIENT,nosync = True)
+            ns_db = ns_db['user']['tasks']
             for task_list in tl:
                 tr = clt.get_tasks(task_list['id'])['items']
 
@@ -100,15 +103,16 @@ async def list_tasks(ctx):
 
 
 @bot.command()
-async def list_tasklists(ctx):
+async def list_tasklists(ctx : discord.ext.commands.Context):
     """Function to list all the users tasklists"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             await ctx.channel.send(f"Loading task list for user {ctx.author.name} (Synced from Google Tasks)",
                                    delete_after=10)
             try:
-                clt = GoogleTasksClient(user_id=str(ctx.author.id))
+                clt = GoogleTasksClient(user_id,CLIENT)
                 tl = clt.get_task_lists()
             except Exception as e:
                 await ctx.channel.send("Error fetching user tasklists")
@@ -120,7 +124,7 @@ async def list_tasklists(ctx):
                              datetime.fromisoformat(task_list['updated']).astimezone().strftime("%B %d, %Y")])
             final_response = table2ascii(header=headings, body=resp)
             final_response = '```\n' + final_response + '\n```'
-            sync_tasks_c2l(str(ctx.author.id))
+            sync_tasks_c2l(user_id,CLIENT)
             chunks = [final_response[i:i + 2000] for i in
                       range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
             for chunk in chunks:
@@ -130,10 +134,11 @@ async def list_tasklists(ctx):
 
 
 @bot.command()
-async def create_tasklist(ctx):
+async def create_tasklist(ctx : discord.ext.commands.Context):
     """Function to create a new tasklist"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             await ctx.channel.send(f"Enter tasklist name to create below", delete_after=20)
 
@@ -144,7 +149,7 @@ async def create_tasklist(ctx):
 
             try:
                 message = await bot.wait_for('message', timeout=20.0, check=validator)
-                clt = GoogleTasksClient(user_id=str(ctx.author.id))
+                clt = GoogleTasksClient(user_id,CLIENT)
                 clt.create_task_list(message.content)
                 await ctx.channel.send(f"Tasklist {message.content} created successfully")
                 await ctx.channel.send(f"Current Tasklists ", delete_after=21)
@@ -156,7 +161,7 @@ async def create_tasklist(ctx):
                                  datetime.fromisoformat(task_list['updated']).astimezone().strftime("%B %d, %Y")])
                 final_response = table2ascii(header=headings, body=resp)
                 final_response = '```\n' + final_response + '\n```'
-                sync_tasks_c2l(str(ctx.author.id))
+                sync_tasks_c2l(user_id,CLIENT)
                 chunks = [final_response[i:i + 2000] for i in
                           range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
                 for chunk in chunks:
@@ -170,14 +175,15 @@ async def create_tasklist(ctx):
 
 
 @bot.command()
-async def create_task(ctx):
+async def create_task(ctx : discord.ext.commands.Context):
     """Function to create a new task"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
                 await ctx.channel.send(f"Enter tasklist number to add the task to : ", delete_after=10)
-                clt = GoogleTasksClient(user_id=str(ctx.author.id))
+                clt = GoogleTasksClient(user_id,CLIENT)
                 tl = clt.get_task_lists()
                 headings = ['No', 'Tasklist Name', 'Last Updated']
                 resp = []
@@ -190,7 +196,7 @@ async def create_task(ctx):
                     index += 1
                 final_response = table2ascii(header=headings, body=resp)
                 final_response = '```\n' + final_response + '\n```'
-                sync_tasks_c2l(str(ctx.author.id))
+                sync_tasks_c2l(user_id,CLIENT)
                 chunks = [final_response[i:i + 2000] for i in
                           range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
                 for chunk in chunks:
@@ -245,12 +251,12 @@ async def create_task(ctx):
                 task = str_to_task(task_msg.content)
                 print(task)
                 new_task = clt.create_task(task_list_id=id_list[tl_no], title=task[0], notes=task[1], due=task[2])
-                sync_tasks_c2l(str(ctx.author.id))
-                ns_db = load_local_db(nosync=True)
-                ns_db[str(ctx.author.id)]["tasks"].append(
+                sync_tasks_c2l(user_id,CLIENT)
+                ns_db = load_local_db(user_id,CLIENT,nosync=True)
+                ns_db["user"]["tasks"].append(
                     {"id": new_task["id"], "title": new_task["title"], "status": new_task["status"],
                      "priority": "not_set", "category": "not_set"})
-                save_local_db(ns_db, nosync=True)
+                save_local_db(user_id,ns_db,CLIENT,nosync=True)
                 await ctx.channel.send(f"Task {task[0]} created successfully in tasklist {resp[tl_no][1]}")
 
             except asyncio.TimeoutError:
@@ -262,14 +268,15 @@ async def create_task(ctx):
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
 
 @bot.command()
-async def list_category(ctx):
+async def list_category(ctx : discord.ext.commands.Context):
     """Function to list a user's categories"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
-                db_ns = load_local_db(nosync=True)
-                db_ns = db_ns[str(ctx.author.id)]
+                db_ns = load_local_db(user_id,CLIENT,nosync=True)
+                db_ns = db_ns["user"]
                 categories = db_ns["categories"]
                 cat_body = []
                 for c in categories:
@@ -295,14 +302,15 @@ async def list_category(ctx):
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
 
 @bot.command()
-async def create_category(ctx):
+async def create_category(ctx : discord.ext.commands.Context):
     """Function to allow the user to create a new category"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
-                db_ns = load_local_db(nosync=True)
-                categories = db_ns[str(ctx.author.id)]["categories"]
+                db_ns = load_local_db(user_id,CLIENT,nosync=True)
+                categories = db_ns["user"]["categories"]
                 await ctx.channel.send(f"Enter a category name to create (length =< 32) : ")
                 def validator(message: discord.Message) -> bool:
                     m_len = len(message.content)
@@ -315,8 +323,8 @@ async def create_category(ctx):
                 if cat in categories:
                     await ctx.channel.send(f"Category {cat} already exists please try again using another category name")
                     return
-                db_ns[str(ctx.author.id)]["categories"].append(cat)
-                save_local_db(db_ns, nosync=True)
+                db_ns["user"]["categories"].append(cat)
+                save_local_db(user_id,db_ns,CLIENT,nosync=True)
                 await ctx.channel.send(f"Category {cat} successfully created")
 
             except asyncio.TimeoutError:
@@ -329,26 +337,27 @@ async def create_category(ctx):
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
 
 @bot.command()
-async def assign_category(ctx):
+async def assign_category(ctx : discord.ext.commands.Context):
     """Function to allow the user to assign a category to a task"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
                 await ctx.channel.send(f"Loading task list for user {ctx.author.name} (Synced from Google Tasks)",
                                        delete_after=10)
                 try:
-                    clt = GoogleTasksClient(user_id=str(ctx.author.id))
+                    clt = GoogleTasksClient(user_id,CLIENT)
                     tl = clt.get_task_lists()
                 except Exception as e:
                     await ctx.channel.send("Error fetching user tasks")
                     return
                 headings = ['No','Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
                 resp = []
-                sync_tasks_c2l(str(ctx.author.id))
-                ns_db = load_local_db(nosync = True)
+                sync_tasks_c2l(user_id,CLIENT)
+                ns_db = load_local_db(user_id,CLIENT,nosync = True)
 
-                u_db = ns_db[str(ctx.author.id)]
+                u_db = ns_db["user"]
                 index = 0
                 id_list = []
                 for task_list in tl:
@@ -377,6 +386,7 @@ async def assign_category(ctx):
                 await ctx.channel.send('Enter a task number from the above list to assign a category to :')
 
                 def validator(message: discord.Message) -> bool:
+                    """Validate if the user has selected a task from within the list"""
                     try:
                         ct = int(message.content)
                         if ct < 0 or (ct > (len(resp) - 1)):
@@ -405,6 +415,7 @@ async def assign_category(ctx):
                     await ctx.channel.send(chunk, delete_after=20)
                 await ctx.channel.send("Enter a category number from the above list to assign to the task : ")
                 def cat_validator(message: discord.Message) -> bool:
+                    """Validate if the user has selected a category from within the list"""
                     try:
                         ct = int(message.content)
                         if ct < 0 or (ct > (len(cat_resp) - 1)):
@@ -415,8 +426,8 @@ async def assign_category(ctx):
                 cat_index = await bot.wait_for('message', timeout=20.0, check=cat_validator)
                 cat_index = int(cat_index.content)
 
-                ns_db[str(ctx.author.id)]['tasks'][task_index]['category'] = categories[cat_index]
-                save_local_db(ns_db, nosync=True)
+                ns_db['user']['tasks'][task_index]['category'] = categories[cat_index]
+                save_local_db(user_id,ns_db,CLIENT, nosync=True)
                 await ctx.channel.send(f"Successfully assigned category {categories[cat_index]} to task {resp[task_index][2]}")
 
             except asyncio.TimeoutError:
@@ -429,26 +440,27 @@ async def assign_category(ctx):
         else:
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
 @bot.command()
-async def assign_priority(ctx):
+async def assign_priority(ctx : discord.ext.commands.Context):
     """Function to allow the user to assign a priority to a task"""
     if ctx.channel.type == discord.ChannelType.private:
-        us = TskUser(str(ctx.author.id))
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
                 await ctx.channel.send(f"Loading task list for user {ctx.author.name} (Synced from Google Tasks)",
                                        delete_after=10)
                 try:
-                    clt = GoogleTasksClient(user_id=str(ctx.author.id))
+                    clt = GoogleTasksClient(user_id,CLIENT)
                     tl = clt.get_task_lists()
                 except Exception as e:
                     await ctx.channel.send("Error fetching user tasks")
                     return
                 headings = ['No','Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
                 resp = []
-                sync_tasks_c2l(str(ctx.author.id))
-                ns_db = load_local_db(nosync = True)
+                sync_tasks_c2l(user_id,CLIENT)
+                ns_db = load_local_db(user_id,CLIENT,nosync = True)
 
-                u_db = ns_db[str(ctx.author.id)]
+                u_db = ns_db["user"]
                 index = 0
                 id_list = []
                 for task_list in tl:
@@ -503,8 +515,8 @@ async def assign_priority(ctx):
                 priority = await bot.wait_for('message', timeout=20.0, check=priority_validator)
                 priority = priority.content.upper()
 
-                ns_db[str(ctx.author.id)]['tasks'][task_index]['priority'] = priority
-                save_local_db(ns_db, nosync=True)
+                ns_db['user']['tasks'][task_index]['priority'] = priority
+                save_local_db(user_id,ns_db,CLIENT,nosync=True)
                 await ctx.channel.send(f"Successfully assigned priority {priority} to task {resp[task_index][2]}")
 
             except asyncio.TimeoutError:
