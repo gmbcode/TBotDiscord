@@ -34,7 +34,7 @@ async def on_ready():
     print(f'We have logged in as {bot.user}')
 
 async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
-    """Selector script to get selected task id and parent tasklist or None"""
+    """Selector functiont to return selected task id and parent tasklist id or None"""
     if ctx.channel.type == discord.ChannelType.private:
         user_id = str(ctx.author.id)
         us = TskUser(user_id,CLIENT)

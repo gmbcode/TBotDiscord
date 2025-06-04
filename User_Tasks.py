@@ -59,7 +59,7 @@ def save_local_db(user_id : str ,db, client : DB_Client,nosync=False) -> bool | 
 
 
 def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
-    """Sync cloud changes to local database"""
+    """Sync cloud changes to MongoDB"""
     t_user = User(userid,client)
     if t_user.user_exists():
         l_db = load_local_db(userid,client)
@@ -78,10 +78,12 @@ def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
         tasks = []
         tasks_ns = []
         task_lists = t_client.get_task_lists()
+        id_lst = []
         for task_list in task_lists:
             tasklists.append(task_list)
             res = t_client.get_tasks(task_list['id'])['items']
             for item in res:
+                id_lst.append(item['id'])
                 tasks.append(item)
         if not u_set:
             for st in tasks:
@@ -89,6 +91,17 @@ def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
                                  "category": "not_set"})
             l_db_ns["user"]["tasks"] = tasks_ns
             save_local_db(userid,l_db_ns,client,nosync=True)
+        else:
+            t_list = l_db_ns['user']['tasks']
+            t_list = [task for task in t_list if task['id'] in id_lst]
+            l_db_ns['user']['tasks'] = t_list
+            for task in t_list:
+                t_sel = list(filter(lambda t: t['id'] == task['id'], tasks))[0]
+                task['status'] = t_sel['status']
+                task['title'] = t_sel['title']
+            l_db_ns['user']['tasks'] = t_list
+            save_local_db(userid,l_db_ns,client,nosync=True)
+
         l_db['user'] = {}
         l_db['user']['tasklists'] = tasklists
         l_db['user']['tasks'] = tasks
