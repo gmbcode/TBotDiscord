@@ -25,6 +25,7 @@ def load_local_db(user_id : str,client : DB_Client,nosync=False) -> dict[str, An
         usr = col.find_one({"user.user_id" : user_id})
         del client_inst
         if usr is not None:
+            del usr['_id']
             return usr
         return None
     except Exception as e:
@@ -53,6 +54,7 @@ def save_local_db(user_id : str ,db, client : DB_Client,nosync=False) -> bool | 
             return True
         return False
     except Exception as e:
+        raise e
         return None
 
 
@@ -68,7 +70,8 @@ def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
         if l_db_ns is None:
             l_db_ns = {}
             u_set = False
-            l_db_ns["categories"] = []
+            l_db_ns['user'] = {}
+            l_db_ns['user']["categories"] = []
 
         t_client = GoogleTasksClient(userid,client)
         tasklists = []
@@ -84,10 +87,11 @@ def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
             for st in tasks:
                 tasks_ns.append({"id": st["id"], "title": st["title"], "status": st["status"], "priority": "not_set",
                                  "category": "not_set"})
-            l_db_ns["tasks"] = tasks_ns
+            l_db_ns["user"]["tasks"] = tasks_ns
             save_local_db(userid,l_db_ns,client,nosync=True)
-        l_db['tasklists'] = tasklists
-        l_db['tasks'] = tasks
+        l_db['user'] = {}
+        l_db['user']['tasklists'] = tasklists
+        l_db['user']['tasks'] = tasks
         save_local_db(userid,l_db,client)
 
     else:
@@ -107,5 +111,6 @@ def create_task_synced(userid: str, task: dict[str, Any], task_list_id: str,db_c
 
 if __name__ == '__main__':
     client = DB_Client()
+    #585767830247571476
     sync_tasks_c2l("585767830247571476",client)
     pass

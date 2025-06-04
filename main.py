@@ -1,4 +1,5 @@
 import asyncio
+from typing import Tuple
 import discord
 from discord.ext import commands
 from dotenv import dotenv_values
@@ -32,6 +33,79 @@ def status_converter(status: str) -> str:
 async def on_ready():
     print(f'We have logged in as {bot.user}')
 
+async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
+    """Selector script to get selected task id and parent tasklist or None"""
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            try:
+                await ctx.channel.send(f"Loading task list for user {ctx.author.name} (Synced from Google Tasks)",
+                                       delete_after=10)
+                try:
+                    clt = GoogleTasksClient(user_id,CLIENT)
+                    tl = clt.get_task_lists()
+                except Exception as e:
+                    await ctx.channel.send("Error fetching user tasks")
+                    return None
+                headings = ['No','Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
+                resp = []
+                resp_int = []
+                sync_tasks_c2l(user_id,CLIENT)
+                ns_db = load_local_db(user_id,CLIENT,nosync = True)
+
+                u_db = ns_db["user"]
+                index = 0
+                id_list = []
+                for task_list in tl:
+                    tr = clt.get_tasks(task_list['id'])['items']
+
+                    for task in tr:
+                        if 'due' in task:
+                            f_date = datetime.fromisoformat(task['due']).astimezone()
+                            f_date = f_date.strftime("%B %d, %Y")
+                        else:
+                            f_date = 'Not Set / Passed'
+                        current_task = list(filter(lambda t: t['id'] == task['id'], u_db['tasks']))[0]
+                        id_list.append(current_task['id'])
+                        resp.append([index,current_task['category'],task['title'], f_date, task_list['title'], status_converter(task['status']), current_task['priority']])
+                        resp_int.append([task['id'],task_list['id']])
+                        index += 1
+                if len(resp) == 0:
+                    await ctx.channel.send("No tasks found")
+                    return None
+                final_response = table2ascii(header=headings, body=resp)
+                final_response = '```\n' + final_response + '\n```'
+                chunks = [final_response[i:i + 2000] for i in
+                          range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
+                for chunk in chunks:
+                    await ctx.channel.send(chunk)
+
+                await ctx.channel.send('Enter a task number from the above list to assign a category to :')
+
+                def validator(message: discord.Message) -> bool:
+                    """Validate if the user has selected a task from within the list"""
+                    try:
+                        ct = int(message.content)
+                        if ct < 0 or (ct > (len(resp) - 1)):
+                            return False
+                        return True
+                    except ValueError:
+                        return False
+
+                t_no = await bot.wait_for('message', timeout=20.0, check=validator)
+                t_no = int(t_no.content)
+                t_id = id_list[t_no]
+                tsk_lst = u_db['tasks']
+                task_index = [t_id == i['id'] for i in tsk_lst].index(True)
+                await ctx.channel.send(f"Successfully selected task {resp[task_index][2]}")
+                return resp_int[task_index][0], resp_int[task_index][1]
+            except asyncio.TimeoutError:
+                await ctx.channel.send("Time elapsed please try again later")
+                return None
+            except Exception as e:
+                await ctx.channel.send("Error fetching user tasks")
+    return None
 
 @bot.event
 async def on_message(message : discord.Message):
@@ -249,7 +323,6 @@ async def create_task(ctx : discord.ext.commands.Context):
                 await ctx.channel.send(f"Enter Details in the following format : \n{format_str}", delete_after=21)
                 task_msg = await bot.wait_for('message', timeout=30.0, check=task_validator)
                 task = str_to_task(task_msg.content)
-                print(task)
                 new_task = clt.create_task(task_list_id=id_list[tl_no], title=task[0], notes=task[1], due=task[2])
                 sync_tasks_c2l(user_id,CLIENT)
                 ns_db = load_local_db(user_id,CLIENT,nosync=True)
@@ -284,7 +357,6 @@ async def list_category(ctx : discord.ext.commands.Context):
                 if len(categories) == 0:
                     await ctx.channel.send("No categories created. First create a category by using `#create_category`")
                     return
-                print(categories)
                 resp = table2ascii(header = ['Categories'], body=cat_body)
                 resp = '```\n' + resp + '\n```'
                 chunks = [resp[i:i + 2000] for i in
@@ -528,4 +600,34 @@ async def assign_priority(ctx : discord.ext.commands.Context):
 
         else:
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
+@bot.command()
+async def toggle_task(ctx : discord.ext.commands.Context):
+    """Function to allow the user to toggle a task's completion status"""
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            try :
+                clt = GoogleTasksClient(user_id,CLIENT)
+                task_selected = await selector(ctx)
+                if task_selected:
+                    task = clt.get_task(task_id=task_selected[0],task_list_id=task_selected[1])
+                    if task:
+                        status = task['status']
+                        if status == 'completed':
+                            clt.uncomplete_task(task_id=task_selected[0],task_list_id=task_selected[1])
+                        else:
+                            clt.complete_task(task_id=task_selected[0],task_list_id=task_selected[1])
+                        sync_tasks_c2l(user_id,CLIENT)
+                        await ctx.channel.send(f"Task {task['title']}'s status has been toggled successfully")
+                        return
+                    await ctx.channel.send("Error finding task", delete_after=20)
+                    return
+                else:
+                    await ctx.channel.send("Toggle task operation cancelled",delete_after=20)
+                    return
+            except Exception as e:
+                print(str(e))
+                await ctx.channel.send("Error fetching user ")
+
 bot.run(TOKEN_DISCORD)

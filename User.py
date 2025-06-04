@@ -12,9 +12,8 @@ class User:
     def user_exists(self) -> bool:
         """Check if user exists ie if user has completed OAuth flow then he should exist"""
         auth = self.client['TBot_DB']['auth']
-        print({"user.user_id" : self.user_id})
         usr = auth.find_one({"user.user_id" : self.user_id})
-        print(usr)
+
         if usr is not None:
             return True
         return False
@@ -60,4 +59,5 @@ class User:
             return False
         except Exception as e:
             print(str(e))
+            return False
 
