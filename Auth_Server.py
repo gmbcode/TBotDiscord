@@ -146,7 +146,8 @@ def oauth_callback():
                 "expires_at": expires_at.isoformat(),
                 "state": state,
                 "user_id": str(user_id),
-                "created_at": datetime.now().isoformat(),
+                "created_at": datetime.now().isoformat(), # System timezone
+                "timezone": "not_set", # User Timezone
                 "user_info": user_info  # Store additional user info
             }
         }

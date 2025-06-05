@@ -6,6 +6,7 @@ from Tasks import GoogleTasksClient
 from User import User
 from typing import Any
 import os
+from copy import deepcopy
 from dotenv import dotenv_values
 
 config = dotenv_values(".env")
@@ -85,6 +86,7 @@ def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
             for item in res:
                 id_lst.append(item['id'])
                 tasks.append(item)
+
         if not u_set:
             for st in tasks:
                 tasks_ns.append({"id": st["id"], "title": st["title"], "status": st["status"], "priority": "not_set",
@@ -92,15 +94,37 @@ def sync_tasks_c2l(userid: str,client : DB_Client) -> None:
             l_db_ns["user"]["tasks"] = tasks_ns
             save_local_db(userid,l_db_ns,client,nosync=True)
         else:
-            t_list = l_db_ns['user']['tasks']
-            t_list = [task for task in t_list if task['id'] in id_lst]
-            l_db_ns['user']['tasks'] = t_list
-            for task in t_list:
-                t_sel = list(filter(lambda t: t['id'] == task['id'], tasks))[0]
-                task['status'] = t_sel['status']
-                task['title'] = t_sel['title']
-            l_db_ns['user']['tasks'] = t_list
+            #t_list = l_db_ns['user']['tasks']
+            #t_list = [task for task in t_list if task['id'] in id_lst]
+            #l_db_ns['user']['tasks'] = t_list
+            #for task in t_list:
+            #   t_sel = list(filter(lambda t: t['id'] == task['id'], tasks))[0]
+            #   task['status'] = t_sel['status']
+            #   task['title'] = t_sel['title']
+            #l_db_ns['user']['tasks'] = t_list
+            t_c = []
+            tasks_prev = deepcopy(tasks)
+            for task in tasks:
+                t_sel = list(filter(lambda x: x['id'] == task["id"], l_db_ns['user']['tasks']))
+                if len(t_sel) > 0:
+                    t_sel = t_sel[0]
+                    task['priority'] = t_sel["priority"]
+                    task['category'] = t_sel["category"]
+                    for key in deepcopy(task).keys():
+                        if key not in ['id','title','status','priority','category']:
+                            del task[key]
+
+                    t_c.append(task)
+                else :
+                    task['priority'] = 'not_set'
+                    task['category'] = 'not_set'
+                    for key in task.copy().keys():
+                        if key not in ['id','title','status','priority','category']:
+                            del task[key]
+                    t_c.append(task)
+            l_db_ns["user"]["tasks"] = t_c
             save_local_db(userid,l_db_ns,client,nosync=True)
+            tasks = tasks_prev
 
         l_db['user'] = {}
         l_db['user']['tasklists'] = tasklists

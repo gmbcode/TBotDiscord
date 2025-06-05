@@ -12,6 +12,7 @@ from table2ascii import table2ascii
 from User_Tasks import sync_tasks_c2l, load_local_db, save_local_db
 from Misc_Methods import str_to_task
 from Mongo_Access import DB_Client
+from pytz import common_timezones
 config = dotenv_values(".env")
 TOKEN_DISCORD = config["DISCORD_BOT_TOKEN"]
 format_str = "Task Name Due Date(YYYY-MM-DD) Notes(if any)\nExample : my task 2025-05-30 Some details about my task"
@@ -629,5 +630,128 @@ async def toggle_task(ctx : discord.ext.commands.Context):
             except Exception as e:
                 print(str(e))
                 await ctx.channel.send("Error fetching user ")
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
+
+@bot.command()
+async def set_timezone(ctx : discord.ext.commands.Context):
+    """Function to set user timezone"""
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            try :
+                await ctx.channel.send(f"Enter a valid timezone to set : \nExample : `Asia/Kolkata`\nNote : Timezones are case-sensitive")
+                def tz_validator(message: discord.Message) -> bool:
+                    tz_info = message.content
+                    if tz_info in common_timezones:
+                        return True
+                    return False
+                tz_sel = await bot.wait_for('message', timeout=20.0, check=tz_validator)
+                tz_sel = tz_sel.content
+                auth = CLIENT.clt['TBot_DB']['auth']
+                usr = auth.find_one({"user.user_id": user_id})
+                if usr is not None:
+                    del usr['_id']
+                usr['user']['timezone'] = tz_sel
+                keys = list(usr.keys())
+                uid = str(keys[0])
+                result = auth.update_one(
+                    {"user.user_id": user_id},  # Filter: documents that have uid field
+                    {"$set": usr},
+                )
+                if result.acknowledged:
+                    await ctx.channel.send(f"Successfully updated timezone")
+                else:
+                    await ctx.channel.send(f"Error updating timezone")
+            except asyncio.TimeoutError:
+                await ctx.channel.send("Time elapsed please try again later choosing a valid timezone")
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
+
+@bot.command()
+async def delete_task(ctx : discord.ext.commands.Context):
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            try :
+                clt = GoogleTasksClient(user_id,CLIENT)
+                task_selected = await selector(ctx)
+                if task_selected:
+                    clt.delete_task(task_id=task_selected[0],task_list_id=task_selected[1])
+                    sync_tasks_c2l(user_id,CLIENT)
+                    await ctx.channel.send(f"Successfully deleted task")
+                    await ctx.channel.send(f"New task list")
+                    ctx.command = bot.get_command("list_tasks")
+                    await ctx.invoke(ctx)
+                else:
+                    await ctx.channel.send("Error finding task", delete_after=20)
+            except Exception as e:
+                print(str(e))
+                await ctx.channel.send("Error fetching user ",delete_after=20)
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself",delete_after=30)
+
+@bot.command()
+async def modify_task(ctx : discord.ext.commands.Context):
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            try :
+                clt = GoogleTasksClient(user_id,CLIENT)
+                task_selected = await selector(ctx)
+                if task_selected:
+                    def task_validator(message: discord.Message) -> bool:
+                        tokenized = message.content.split()
+                        index = 0
+                        d_index = 0
+                        d_toks = 0
+                        for token in tokenized:
+                            try:
+                                datetime.strptime(token, "%Y-%m-%d")
+                                d_toks += 1
+                                d_index = index
+                            except ValueError:
+                                pass
+                            index += 1
+                        if d_toks == 1:  # Check if only one date is present in input
+                            pass
+                        else:
+                            return False
+                        if d_index != 0:
+                            task_name = tokenized[0:d_index]
+                            task_name = "".join(task_name)
+                        else:
+                            return False
+                        task_due = datetime.strptime(tokenized[d_index], "%Y-%m-%d").date()
+                        today = date.today()
+                        if task_due < today:  # Date is in the past
+                            return False
+                        year = timedelta(days=365)
+                        max_spread = today + year
+                        if task_due > max_spread:  # Task is more than one year after
+                            return False
+                        return True
+                    await ctx.channel.send(f"Enter Details in the following format : \n{format_str}", delete_after=21)
+                    task_msg = await bot.wait_for('message', timeout=30.0, check=task_validator)
+                    task = str_to_task(task_msg.content)
+                    patched_task = clt.update_task(task_list_id=task_selected[1],task_id=task_selected[0],title=task[0], notes=task[1], due=task[2])
+                    ns_db = load_local_db(user_id, CLIENT, nosync=True)
+                    ns_db["user"]["tasks"].append(
+                        {"id": patched_task["id"], "title": patched_task["title"], "status": patched_task["status"],
+                         "priority": "not_set", "category": "not_set"})
+                    save_local_db(user_id, ns_db, CLIENT, nosync=True)
+                    await ctx.channel.send(f"Task {task[0]} modified successfully")
+                    sync_tasks_c2l(user_id,CLIENT)
+
+                else:
+                    await ctx.channel.send("Error finding task", delete_after=20)
+            except Exception as e:
+                print(str(e))
+                await ctx.channel.send("Error fetching user ",delete_after=20)
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself",delete_after=30)
 
 bot.run(TOKEN_DISCORD)
