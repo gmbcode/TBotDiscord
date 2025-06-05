@@ -12,6 +12,7 @@ from table2ascii import table2ascii
 from User_Tasks import sync_tasks_c2l, load_local_db, save_local_db
 from Misc_Methods import str_to_task
 from Mongo_Access import DB_Client
+from copy import deepcopy
 from pytz import common_timezones
 config = dotenv_values(".env")
 TOKEN_DISCORD = config["DISCORD_BOT_TOKEN"]
@@ -475,9 +476,11 @@ async def assign_category(ctx : discord.ext.commands.Context):
                 task_index = [t_id == i['id'] for i in tsk_lst].index(True)
                 await ctx.channel.send(f"Successfully selected task {resp[task_index][2]}")
 
-                categories = u_db["categories"]
+                categories = deepcopy(u_db["categories"])
+                if "not_set" not in categories:
+                    categories.append("not_set")
                 cat_body = [ [i,categories[i]] for i in range(len(categories)) ]
-                if len(categories) == 0:
+                if len(u_db["categories"]) == 0:
                     await ctx.channel.send("No categories created. First create a category by using `#create_category`")
                     return
                 cat_resp = table2ascii(header=['No','Categories'], body=cat_body)
@@ -581,12 +584,13 @@ async def assign_priority(ctx : discord.ext.commands.Context):
                 await ctx.channel.send("Enter a priority (low,medium,high) to assign to the task  : ")
                 def priority_validator(message: discord.Message) -> bool:
                     priority_sel = message.content.upper()
-                    if priority_sel in ['LOW', 'MEDIUM', 'HIGH']:
+                    if priority_sel in ['LOW', 'MEDIUM', 'HIGH','not_set']:
                         return True
                     else:
                         return False
                 priority = await bot.wait_for('message', timeout=20.0, check=priority_validator)
-                priority = priority.content.upper()
+                if priority != 'not_set':
+                    priority = priority.content.upper()
 
                 ns_db['user']['tasks'][task_index]['priority'] = priority
                 save_local_db(user_id,ns_db,CLIENT,nosync=True)
