@@ -94,8 +94,11 @@ class ReminderBot(commands.Bot):
                 await usr.send("Alert",embed=embed)
                 self.db.delete_one({"reminder_id":reminder['reminder_id']})
                 return
-    async def on_command_error(self, context: Context[BotT], exception: errors.CommandError, /) -> None:
-        pass
+    async def on_command_error(self, context: Context[BotT], exception: errors.CommandError) -> None:
+        if isinstance(exception, commands.CommandNotFound):
+            pass
+        else:
+            print(str(exception))
 
 
 rem_bot = ReminderBot()
