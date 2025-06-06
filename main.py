@@ -756,6 +756,13 @@ async def modify_task(ctx : discord.ext.commands.Context):
         else:
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself",delete_after=30)
 
+async def rt_sync_available(task_id : str) -> bool:
+    rem_db = CLIENT.clt['TBot_DB']['reminders']
+    synced_task = list(rem_db.find({"task_id": task_id,"task_sync":"yes","recurring":"yes"}))
+    if len(synced_task) == 0:
+        return True
+    return False
+
 @bot.command()
 async def create_reminder(ctx : discord.ext.commands.Context):
     """Command to allow the user to create reminders"""
@@ -772,6 +779,7 @@ async def create_reminder(ctx : discord.ext.commands.Context):
                     if usr is not None:
                         del usr['_id']
                     usr_timezone = usr['user']['timezone']
+                    rem_db = CLIENT.clt['TBot_DB']['reminders']
                     if usr_timezone == 'not_set':
                         await ctx.channel.send(f"You need to set a timezone first using `#set_timezone` command",delete_after=15)
                         return
@@ -805,10 +813,40 @@ async def create_reminder(ctx : discord.ext.commands.Context):
                         except ValueError:
                             return False
                     time_sel = await bot.wait_for('message', timeout=25.0, check=time_validator)
+                    def rec_val(message: discord.Message) -> bool:
+                        if message.content.lower() in ['yes','no']:
+                            return True
+                        return False
+
+                    await ctx.channel.send("Do you want reminder to be recurring : Yes/No",delete_after=20)
+                    choice = await bot.wait_for('message', timeout=20.0, check=rec_val)
+                    choice = choice.content.lower()
+                    recurrence_interval = 0
+                    rem_sync = 'no'
+                    if choice == 'yes':
+                        await ctx.channel.send("Enter recurrence interval in days from (1,30): ", delete_after=20)
+                        def rec_int_val(message: discord.Message) -> bool:
+                            try:
+                                days = int(message.content)
+                                if days > 0 and days <= 30 :
+                                    return True
+                                return False
+                            except ValueError:
+                                return False
+                        rec_int = await bot.wait_for('message', timeout=20.0, check=rec_int_val)
+                        recurrence_interval = int(rec_int.content)
+                        sync_available = await rt_sync_available(task_selected[0])
+                        if sync_available:
+                            await ctx.channel.send("Do you want the reminder to sync with task due date ? (Yes/No) \nThis will immediately set the task due date to current reminder date and change due date and reset task completion status every time reminder is repeated.\nNote : Only one reminder per task can be synced", delete_after=20)
+                            sync_resp = await bot.wait_for('message', timeout=20.0, check=rec_val)
+                            sync_resp = sync_resp.content.lower()
+                            rem_sync = sync_resp
+
+
+
                     time_sel = time_sel.content
                     date_time = date_sel + " " + time_sel + ":00"
                     obj = iso_localizer(date_time,usr_timezone)
-                    rem_db = CLIENT.clt['TBot_DB']['reminders']
                     unique_id = "".join(str(uuid4()).split('-'))
 
                     reminder = {
@@ -819,6 +857,11 @@ async def create_reminder(ctx : discord.ext.commands.Context):
                         "task_name": task_selected[2], # Reminder task name
                         "due" : obj, # Reminder due time converted to utc
                         "due_date" : str(obj.date()), # Reminder due date (UTC)
+                        "recurring" : choice ,
+                        "recurrence_interval" : recurrence_interval,
+                        "task_sync" : rem_sync,
+                        "times_reminded" : 0,
+                        "times_completed" : 0,
                     }
                     operation = rem_db.insert_one(reminder)
                     if operation.acknowledged:
@@ -844,17 +887,16 @@ async def list_reminders(ctx : discord.ext.commands.Context):
             usr_timezone = usr['user']['timezone']
             rem_db = CLIENT.clt['TBot_DB']['reminders']
             reminders = list(rem_db.find({"user_id": user_id}))
-
             if len(reminders) > 0:
                 rem_resp = []
-                hdrs = ['Task Name','Due Date','Due Time']
+                hdrs = ['Task Name','Due Date','Due Time','Recurring','Sync']
                 for rem in reminders:
                     tm = rem['due']
                     tm = tz('utc').localize(tm)
                     tm = tm.astimezone(tz(usr_timezone))
                     rem_date = tm.date().strftime("%B %d, %Y")
                     rem_time = str(tm.time())
-                    rem_resp.append([rem['task_name'],rem_date,rem_time])
+                    rem_resp.append([rem['task_name'],rem_date,rem_time,rem['recurring'].upper(),rem['task_sync'].upper()])
                 await ctx.channel.send(f"Showing results in user timezone `{usr_timezone}`")
 
                 final_resp = "```\n"+table2ascii(header=hdrs,body=rem_resp)+"\n```"
@@ -865,6 +907,7 @@ async def list_reminders(ctx : discord.ext.commands.Context):
 
             else:
                 await ctx.channel.send("No reminders exist first create a reminder using `#create_reminder` command",delete_after=15)
+                await ctx.channel.send("Note : In order to receive reminder alerts your reminders should be created at least 30 minutes before the due time \n This is a limitation of the bot necessary to reduce server load.", delete_after=15)
                 return
 
         else:
