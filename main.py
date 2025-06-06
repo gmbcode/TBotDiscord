@@ -4,8 +4,7 @@ import discord
 from discord.ext import commands
 from dotenv import dotenv_values
 from Auth_Server import generate_auth_url
-import User
-TskUser = User.User
+from User import User as TskUser
 from datetime import datetime, date, timedelta
 from Tasks import GoogleTasksClient
 from table2ascii import table2ascii
@@ -31,7 +30,7 @@ async def on_ready():
     print(f'We have logged in as {bot.user}')
 
 async def selector(ctx : discord.ext.commands.Context , get_task_name : bool = False) -> Tuple[str,str] | Tuple[str,str,str] | None :
-    """Selector functiont to return selected task id and parent tasklist id or None"""
+    """Selector function to return selected task id and parent tasklist id or None"""
     if ctx.channel.type == discord.ChannelType.private:
         user_id = str(ctx.author.id)
         us = TskUser(user_id,CLIENT)
