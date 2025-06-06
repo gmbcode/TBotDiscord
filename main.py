@@ -9,13 +9,16 @@ TskUser = User.User
 from datetime import datetime, date, timedelta
 from Tasks import GoogleTasksClient
 from table2ascii import table2ascii
-from User_Tasks import sync_tasks_c2l, load_local_db, save_local_db
-from Misc_Methods import str_to_task
+from User_Tasks import sync_tasks_g2m, load_mongo_db, save_to_db
+from Misc_Methods import str_to_task, status_converter, iso_localizer
 from Mongo_Access import DB_Client
 from copy import deepcopy
 from pytz import common_timezones
+from pytz import timezone as tz
+from uuid import uuid4
 config = dotenv_values(".env")
 TOKEN_DISCORD = config["DISCORD_BOT_TOKEN"]
+local_tz = config["LOCAL_TZ"]
 format_str = "Task Name Due Date(YYYY-MM-DD) Notes(if any)\nExample : my task 2025-05-30 Some details about my task"
 intents = discord.Intents.default()
 intents.message_content = True
@@ -23,19 +26,11 @@ CLIENT = DB_Client()
 bot = commands.Bot(command_prefix="#", intents=intents)
 
 
-def status_converter(status: str) -> str:
-    """Miniature task status converter"""
-    if status == "completed":
-        return "✓"
-    else:
-        return "X"
-
-
 @bot.event
 async def on_ready():
     print(f'We have logged in as {bot.user}')
 
-async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
+async def selector(ctx : discord.ext.commands.Context , get_task_name : bool = False) -> Tuple[str,str] | Tuple[str,str,str] | None :
     """Selector functiont to return selected task id and parent tasklist id or None"""
     if ctx.channel.type == discord.ChannelType.private:
         user_id = str(ctx.author.id)
@@ -53,8 +48,8 @@ async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
                 headings = ['No','Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
                 resp = []
                 resp_int = []
-                sync_tasks_c2l(user_id,CLIENT)
-                ns_db = load_local_db(user_id,CLIENT,nosync = True)
+                sync_tasks_g2m(user_id, CLIENT)
+                ns_db = load_mongo_db(user_id, CLIENT, nosync = True)
 
                 u_db = ns_db["user"]
                 index = 0
@@ -71,7 +66,7 @@ async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
                         current_task = list(filter(lambda t: t['id'] == task['id'], u_db['tasks']))[0]
                         id_list.append(current_task['id'])
                         resp.append([index,current_task['category'],task['title'], f_date, task_list['title'], status_converter(task['status']), current_task['priority']])
-                        resp_int.append([task['id'],task_list['id']])
+                        resp_int.append([task['id'],task_list['id'],task['title']])
                         index += 1
                 if len(resp) == 0:
                     await ctx.channel.send("No tasks found")
@@ -83,7 +78,7 @@ async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
                 for chunk in chunks:
                     await ctx.channel.send(chunk)
 
-                await ctx.channel.send('Enter a task number from the above list to assign a category to :')
+                await ctx.channel.send('Enter a task number from the above list to select :')
 
                 def validator(message: discord.Message) -> bool:
                     """Validate if the user has selected a task from within the list"""
@@ -101,7 +96,10 @@ async def selector(ctx : discord.ext.commands.Context) -> Tuple[str,str] | None:
                 tsk_lst = u_db['tasks']
                 task_index = [t_id == i['id'] for i in tsk_lst].index(True)
                 await ctx.channel.send(f"Successfully selected task {resp[task_index][2]}")
-                return resp_int[task_index][0], resp_int[task_index][1]
+                if not get_task_name:
+                    return resp_int[task_index][0], resp_int[task_index][1]
+                else:
+                    return resp_int[task_index][0], resp_int[task_index][1], resp_int[task_index][2]
             except asyncio.TimeoutError:
                 await ctx.channel.send("Time elapsed please try again later")
                 return None
@@ -151,8 +149,8 @@ async def list_tasks(ctx : discord.ext.commands.Context):
                 return
             headings = ['Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
             resp = []
-            sync_tasks_c2l(user_id,CLIENT)
-            ns_db = load_local_db(user_id,CLIENT,nosync = True)
+            sync_tasks_g2m(user_id, CLIENT)
+            ns_db = load_mongo_db(user_id, CLIENT, nosync = True)
             ns_db = ns_db['user']['tasks']
             for task_list in tl:
                 tr = clt.get_tasks(task_list['id'])['items']
@@ -200,7 +198,7 @@ async def list_tasklists(ctx : discord.ext.commands.Context):
                              datetime.fromisoformat(task_list['updated']).astimezone().strftime("%B %d, %Y")])
             final_response = table2ascii(header=headings, body=resp)
             final_response = '```\n' + final_response + '\n```'
-            sync_tasks_c2l(user_id,CLIENT)
+            sync_tasks_g2m(user_id, CLIENT)
             chunks = [final_response[i:i + 2000] for i in
                       range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
             for chunk in chunks:
@@ -237,7 +235,7 @@ async def create_tasklist(ctx : discord.ext.commands.Context):
                                  datetime.fromisoformat(task_list['updated']).astimezone().strftime("%B %d, %Y")])
                 final_response = table2ascii(header=headings, body=resp)
                 final_response = '```\n' + final_response + '\n```'
-                sync_tasks_c2l(user_id,CLIENT)
+                sync_tasks_g2m(user_id, CLIENT)
                 chunks = [final_response[i:i + 2000] for i in
                           range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
                 for chunk in chunks:
@@ -272,7 +270,7 @@ async def create_task(ctx : discord.ext.commands.Context):
                     index += 1
                 final_response = table2ascii(header=headings, body=resp)
                 final_response = '```\n' + final_response + '\n```'
-                sync_tasks_c2l(user_id,CLIENT)
+                sync_tasks_g2m(user_id, CLIENT)
                 chunks = [final_response[i:i + 2000] for i in
                           range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
                 for chunk in chunks:
@@ -326,12 +324,12 @@ async def create_task(ctx : discord.ext.commands.Context):
                 task_msg = await bot.wait_for('message', timeout=30.0, check=task_validator)
                 task = str_to_task(task_msg.content)
                 new_task = clt.create_task(task_list_id=id_list[tl_no], title=task[0], notes=task[1], due=task[2])
-                sync_tasks_c2l(user_id,CLIENT)
-                ns_db = load_local_db(user_id,CLIENT,nosync=True)
+                sync_tasks_g2m(user_id, CLIENT)
+                ns_db = load_mongo_db(user_id, CLIENT, nosync=True)
                 ns_db["user"]["tasks"].append(
                     {"id": new_task["id"], "title": new_task["title"], "status": new_task["status"],
                      "priority": "not_set", "category": "not_set"})
-                save_local_db(user_id,ns_db,CLIENT,nosync=True)
+                save_to_db(user_id, ns_db, CLIENT, nosync=True)
                 await ctx.channel.send(f"Task {task[0]} created successfully in tasklist {resp[tl_no][1]}")
 
             except asyncio.TimeoutError:
@@ -350,7 +348,7 @@ async def list_category(ctx : discord.ext.commands.Context):
         us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
-                db_ns = load_local_db(user_id,CLIENT,nosync=True)
+                db_ns = load_mongo_db(user_id, CLIENT, nosync=True)
                 db_ns = db_ns["user"]
                 categories = db_ns["categories"]
                 cat_body = []
@@ -383,7 +381,7 @@ async def create_category(ctx : discord.ext.commands.Context):
         us = TskUser(user_id,CLIENT)
         if us.user_exists():
             try:
-                db_ns = load_local_db(user_id,CLIENT,nosync=True)
+                db_ns = load_mongo_db(user_id, CLIENT, nosync=True)
                 categories = db_ns["user"]["categories"]
                 await ctx.channel.send(f"Enter a category name to create (length =< 32) : ")
                 def validator(message: discord.Message) -> bool:
@@ -398,7 +396,7 @@ async def create_category(ctx : discord.ext.commands.Context):
                     await ctx.channel.send(f"Category {cat} already exists please try again using another category name")
                     return
                 db_ns["user"]["categories"].append(cat)
-                save_local_db(user_id,db_ns,CLIENT,nosync=True)
+                save_to_db(user_id, db_ns, CLIENT, nosync=True)
                 await ctx.channel.send(f"Category {cat} successfully created")
 
             except asyncio.TimeoutError:
@@ -428,8 +426,8 @@ async def assign_category(ctx : discord.ext.commands.Context):
                     return
                 headings = ['No','Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
                 resp = []
-                sync_tasks_c2l(user_id,CLIENT)
-                ns_db = load_local_db(user_id,CLIENT,nosync = True)
+                sync_tasks_g2m(user_id, CLIENT)
+                ns_db = load_mongo_db(user_id, CLIENT, nosync = True)
 
                 u_db = ns_db["user"]
                 index = 0
@@ -503,7 +501,7 @@ async def assign_category(ctx : discord.ext.commands.Context):
                 cat_index = int(cat_index.content)
 
                 ns_db['user']['tasks'][task_index]['category'] = categories[cat_index]
-                save_local_db(user_id,ns_db,CLIENT, nosync=True)
+                save_to_db(user_id, ns_db, CLIENT, nosync=True)
                 await ctx.channel.send(f"Successfully assigned category {categories[cat_index]} to task {resp[task_index][2]}")
 
             except asyncio.TimeoutError:
@@ -533,8 +531,8 @@ async def assign_priority(ctx : discord.ext.commands.Context):
                     return
                 headings = ['No','Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
                 resp = []
-                sync_tasks_c2l(user_id,CLIENT)
-                ns_db = load_local_db(user_id,CLIENT,nosync = True)
+                sync_tasks_g2m(user_id, CLIENT)
+                ns_db = load_mongo_db(user_id, CLIENT, nosync = True)
 
                 u_db = ns_db["user"]
                 index = 0
@@ -593,7 +591,7 @@ async def assign_priority(ctx : discord.ext.commands.Context):
                     priority = priority.content.upper()
 
                 ns_db['user']['tasks'][task_index]['priority'] = priority
-                save_local_db(user_id,ns_db,CLIENT,nosync=True)
+                save_to_db(user_id, ns_db, CLIENT, nosync=True)
                 await ctx.channel.send(f"Successfully assigned priority {priority} to task {resp[task_index][2]}")
 
             except asyncio.TimeoutError:
@@ -623,7 +621,7 @@ async def toggle_task(ctx : discord.ext.commands.Context):
                             clt.uncomplete_task(task_id=task_selected[0],task_list_id=task_selected[1])
                         else:
                             clt.complete_task(task_id=task_selected[0],task_list_id=task_selected[1])
-                        sync_tasks_c2l(user_id,CLIENT)
+                        sync_tasks_g2m(user_id, CLIENT)
                         await ctx.channel.send(f"Task {task['title']}'s status has been toggled successfully")
                         return
                     await ctx.channel.send("Error finding task", delete_after=20)
@@ -684,11 +682,12 @@ async def delete_task(ctx : discord.ext.commands.Context):
                 task_selected = await selector(ctx)
                 if task_selected:
                     clt.delete_task(task_id=task_selected[0],task_list_id=task_selected[1])
-                    sync_tasks_c2l(user_id,CLIENT)
+                    sync_tasks_g2m(user_id, CLIENT)
                     await ctx.channel.send(f"Successfully deleted task")
                     await ctx.channel.send(f"New task list")
-                    ctx.command = bot.get_command("list_tasks")
-                    await ctx.invoke(ctx)
+                    cmd = bot.get_command("list_tasks")
+                    # noinspection PyTypeChecker
+                    await ctx.invoke(cmd)
                 else:
                     await ctx.channel.send("Error finding task", delete_after=20)
             except Exception as e:
@@ -738,17 +737,17 @@ async def modify_task(ctx : discord.ext.commands.Context):
                         if task_due > max_spread:  # Task is more than one year after
                             return False
                         return True
-                    await ctx.channel.send(f"Enter Details in the following format : \n{format_str}", delete_after=21)
-                    task_msg = await bot.wait_for('message', timeout=30.0, check=task_validator)
+                    await ctx.channel.send(f"Enter Details in the following format : \n{format_str}", delete_after=40)
+                    task_msg = await bot.wait_for('message', timeout=40.0, check=task_validator)
                     task = str_to_task(task_msg.content)
                     patched_task = clt.update_task(task_list_id=task_selected[1],task_id=task_selected[0],title=task[0], notes=task[1], due=task[2])
-                    ns_db = load_local_db(user_id, CLIENT, nosync=True)
+                    ns_db = load_mongo_db(user_id, CLIENT, nosync=True)
                     ns_db["user"]["tasks"].append(
                         {"id": patched_task["id"], "title": patched_task["title"], "status": patched_task["status"],
                          "priority": "not_set", "category": "not_set"})
-                    save_local_db(user_id, ns_db, CLIENT, nosync=True)
+                    save_to_db(user_id, ns_db, CLIENT, nosync=True)
                     await ctx.channel.send(f"Task {task[0]} modified successfully")
-                    sync_tasks_c2l(user_id,CLIENT)
+                    sync_tasks_g2m(user_id, CLIENT)
 
                 else:
                     await ctx.channel.send("Error finding task", delete_after=20)
@@ -757,5 +756,120 @@ async def modify_task(ctx : discord.ext.commands.Context):
                 await ctx.channel.send("Error fetching user ",delete_after=20)
         else:
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself",delete_after=30)
+
+@bot.command()
+async def create_reminder(ctx : discord.ext.commands.Context):
+    """Command to allow the user to create reminders"""
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            await ctx.channel.send("Select a task to set reminder for : ",delete_after=10)
+            task_selected = await selector(ctx,get_task_name=True)
+            if task_selected:
+                try :
+                    auth = CLIENT.clt['TBot_DB']['auth']
+                    usr = auth.find_one({"user.user_id": user_id})
+                    if usr is not None:
+                        del usr['_id']
+                    usr_timezone = usr['user']['timezone']
+                    if usr_timezone == 'not_set':
+                        await ctx.channel.send(f"You need to set a timezone first using `#set_timezone` command",delete_after=15)
+                        return
+                    await ctx.channel.send("Enter valid date in YYYY-MM-DD format : ",delete_after=40)
+                    def date_validator(message: discord.Message) -> bool:
+                        dt = message.content
+                        try :
+                            now = datetime.now()
+                            now = tz(usr_timezone).localize(now)
+                            cd = now.date() # Get current date in user's timezone
+                            dt = date.fromisoformat(dt)
+                            if dt >= cd:
+                                return True
+                            return False
+                        except ValueError:
+                            return False
+                    date_sel = await bot.wait_for('message', timeout=40.0, check=date_validator)
+                    date_sel = date_sel.content
+                    await ctx.channel.send("Enter valid time in HH-MM (24 hour format) \n Example : `16:30`", delete_after=40)
+                    def time_validator(message: discord.Message) -> bool:
+                        time_sel = message.content
+                        tm = date_sel + " " + time_sel + ":00"
+                        try :
+                            tm = iso_localizer(tm,usr_timezone)
+                            now = datetime.now()
+                            now = tz(local_tz).localize(now)
+                            now = now.astimezone(tz('UTC'))
+                            if tm >= now:
+                                return True
+                            return False
+                        except ValueError:
+                            return False
+                    time_sel = await bot.wait_for('message', timeout=25.0, check=time_validator)
+                    time_sel = time_sel.content
+                    date_time = date_sel + " " + time_sel + ":00"
+                    obj = iso_localizer(date_time,usr_timezone)
+                    rem_db = CLIENT.clt['TBot_DB']['reminders']
+                    unique_id = "".join(str(uuid4()).split('-'))
+
+                    reminder = {
+                        "reminder_id": unique_id, # Unique id for reminder
+                        "user_id": user_id,       # User id
+                        "task_id": task_selected[0], # Reminder task id
+                        "tasklist_id": task_selected[1], # Reminder tasklist id
+                        "task_name": task_selected[2], # Reminder task name
+                        "due" : obj, # Reminder due time converted to utc
+                        "due_date" : str(obj.date()), # Reminder due date (UTC)
+                    }
+                    operation = rem_db.insert_one(reminder)
+                    if operation.acknowledged:
+                        await ctx.channel.send(f"Successfully created reminder for task {task_selected[2]} at {date_time}", delete_after=20)
+                    else:
+                        await ctx.channel.send("Error creating reminder", delete_after=20)
+                except asyncio.TimeoutError:
+                    await ctx.channel.send("Time elapsed / Invalid date entered", delete_after=25)
+
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself",delete_after=30)
+
+@bot.command()
+async def list_reminders(ctx : discord.ext.commands.Context):
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            auth = CLIENT.clt['TBot_DB']['auth']
+            usr = auth.find_one({"user.user_id": user_id})
+            if usr is not None:
+                del usr['_id']
+            usr_timezone = usr['user']['timezone']
+            rem_db = CLIENT.clt['TBot_DB']['reminders']
+            reminders = list(rem_db.find({"user_id": user_id}))
+
+            if len(reminders) > 0:
+                rem_resp = []
+                hdrs = ['Task Name','Due Date','Due Time']
+                for rem in reminders:
+                    tm = rem['due']
+                    tm = tz('utc').localize(tm)
+                    tm = tm.astimezone(tz(usr_timezone))
+                    rem_date = tm.date().strftime("%B %d, %Y")
+                    rem_time = str(tm.time())
+                    rem_resp.append([rem['task_name'],rem_date,rem_time])
+                await ctx.channel.send(f"Showing results in user timezone `{usr_timezone}`")
+
+                final_resp = "```\n"+table2ascii(header=hdrs,body=rem_resp)+"\n```"
+                chunks = [final_resp[i:i + 2000] for i in
+                          range(0, len(final_resp), 2000)]  # Split into 2000 sized chunks
+                for chunk in chunks:
+                    await ctx.channel.send(chunk)
+
+            else:
+                await ctx.channel.send("No reminders exist first create a reminder using `#create_reminder` command",delete_after=15)
+                return
+
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself", delete_after=30)
+
 
 bot.run(TOKEN_DISCORD)

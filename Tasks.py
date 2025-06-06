@@ -1,7 +1,7 @@
 import json
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from typing import Optional, Dict, List, Any
 from dotenv import dotenv_values
 
@@ -17,7 +17,7 @@ class GoogleTasksClient:
     and provides comprehensive methods for Google Tasks operations.
     """
 
-    def __init__(self, user_id: str, client,oauth_data_file: str = "udb.json"):
+    def __init__(self, user_id: str, client : DB_Client):
         """
         Initialize the Google Tasks client for a specific user.
 
@@ -26,7 +26,6 @@ class GoogleTasksClient:
             oauth_data_file: Path to the JSON file containing OAuth data
         """
         self.user_id = user_id
-        self.oauth_data_file = oauth_data_file
         self.base_url = "https://tasks.googleapis.com/tasks/v1"
         self.client_id = config["GOOGLE_CLIENT_ID"]
         self.client_secret = config["GOOGLE_CLIENT_SECRET"]
@@ -322,7 +321,7 @@ class GoogleTasksClient:
         """Mark a task as completed."""
         return self.update_task(task_list_id, task_id,
                                 status="completed",
-                                completed=datetime.utcnow().isoformat() + "Z")
+                                completed=datetime.now(timezone.utc).isoformat())
 
     def uncomplete_task(self, task_list_id: str, task_id: str) -> Dict:
         """Mark a task as not completed."""
@@ -376,7 +375,7 @@ class GoogleTasksClient:
         tasks_response = self.get_tasks(task_list_id, show_completed=False)
         tasks = tasks_response.get("items", [])
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         overdue_tasks = []
 
         for task in tasks:
