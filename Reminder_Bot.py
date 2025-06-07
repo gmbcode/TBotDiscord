@@ -96,6 +96,16 @@ class ReminderBot(commands.Bot):
                     description=f"Reminder for completing {reminder['task_name']}",
                     color=discord.Color.green()
                 )
+                embed_not_completed = discord.Embed(
+                    title="!!! Reminder !!!",
+                    description=f"You were not able to complete recurring task {reminder['task_name']} by the due date",
+                    color=discord.Color.red()
+                )
+                embed_completed = discord.Embed(
+                    title="!!! Reminder !!!",
+                    description=f"Nice work you were able to complete recurring task {reminder['task_name']} by the due date",
+                    color=discord.Color.green()
+                )
                 await usr.send("Alert", embed=embed)
                 if reminder['recurring'] == 'yes':
                     new_reminder = deepcopy(reminder)
@@ -107,8 +117,12 @@ class ReminderBot(commands.Bot):
                     new_reminder['due_date'] = str(new_reminder['due'].date())
                     new_reminder['reminder_id'] = "".join(str(uuid4()).split("-"))
                     new_reminder['times_reminded'] += 1
-                    if task['status'] == "completed":
+                    if task['status'] == "completed" and task['task_sync'] == 'yes':
                         new_reminder['times_completed'] += 1
+                        await usr.send("Alert", embed=embed_completed)
+                    if task['status'] == "needsAction" and task['task_sync'] == 'yes':
+                        await usr.send("Alert", embed=embed_not_completed)
+
                     if reminder['task_sync'] == 'yes':
                         upd_resp = gclt.update_task(task_list_id=reminder['tasklist_id'], task_id=reminder['task_id'],
                                                     status='needsAction', due=local_due_date)

@@ -73,6 +73,7 @@ def sync_tasks_g2m(userid: str, client : DB_Client) -> None:
             u_set = False
             l_db_ns['user'] = {}
             l_db_ns['user']["categories"] = []
+            l_db_ns['user']["groups"] = []
 
         t_client = GoogleTasksClient(userid,client)
         tasklists = []

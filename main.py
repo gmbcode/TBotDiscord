@@ -861,7 +861,7 @@ async def create_reminder(ctx : discord.ext.commands.Context):
                         "recurrence_interval" : recurrence_interval,
                         "task_sync" : rem_sync,
                         "times_reminded" : 0,
-                        "times_completed" : 0,
+                        "times_completed" : 0,  # Only works with synced tasks
                     }
                     operation = rem_db.insert_one(reminder)
                     if operation.acknowledged:
