@@ -104,6 +104,8 @@ Create a database called as `TBot_DB` with the following collections :
 - `tasks` for storing a synced version of users google tasks
 - `tasks_ns` for storing category and priority information
 - `reminders` for storing user reminders
+- `groups` for storing user groups
+- `group_tasks` for storing user group tasks
 ### 6. Project Structure
 
 Ensure your project has the following structure:
@@ -113,6 +115,7 @@ discord-task-bot/
 ├── Reminder_Bot.py
 ├── Auth_Server.py
 ├── Group_Commands_Processor.py
+├── Group_Bot.py
 ├── User.py
 ├── Tasks.py
 ├── User_Tasks.py
@@ -146,6 +149,10 @@ python Reminder_Bot.py
 python Group_Commands_Processor.py
 ```
 
+### 5. Group Task Alerts System
+```bash
+python Group_Bot.py
+```
 ## Usage
 
 ### Initial Setup
@@ -178,7 +185,20 @@ All commands are prefixed with `#` and must be sent as direct messages to the bo
 #### Reminders
 - `#create_reminder` - Set up task reminders
 - `#list_reminders` - View all active reminders
+#### Group System
+- `#create_task_group` - Create a task group enabling group task support
+- `#join_group` - Join task group
+- `#assign_group_channel` Assign channel to a group
+- `#create_group_task` - Create group task
+- `#list_group_task` - Lists all group tasks
+- `#toggle_group_task` - Toggle group task completion status
+- `#delete_group_task` - Delete group task
+- `#list_groups` - List all user groups
+- `#invite_member_to_group` - Invite member to group
+- `#assign_role` - Assign role to group member
+- `#leave_group` - Leave the group
 
+Note : Only users with role Moderator and Above can create tasks as well as assign tasks to other users.
 #### Settings
 - `#set_timezone` - Configure your timezone for accurate reminders
 
@@ -211,7 +231,6 @@ Example: Complete project report 2025-06-15 Final version with all sections
 ### Task Categories and Priorities
 - Organize tasks with custom categories
 - Set priorities to focus on important tasks
-- Filter and view tasks by category or priority
 
 ## Troubleshooting
 
@@ -252,3 +271,4 @@ For additional support or to report issues:
 - I did try testing the bot with async MongoDB clients but it did not yield noticeable performance improvements
 - The codebase relied on json files earlier prior to the migration to MongoDB which made it very inefficient as all users files needed to be loaded for each query
 - Appropriate MongoDB indexes were set up for unique fields commonly accessed to speed up query times
+- The overall user experience relies a bit heavily on typing as opposed to discord interactions due to time constraints and realising it a lot later down the project
