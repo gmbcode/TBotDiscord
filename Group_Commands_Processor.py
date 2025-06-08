@@ -1,5 +1,4 @@
 import asyncio
-from tabnanny import check
 from typing import Tuple, Callable, Dict, Any
 import discord
 from dotenv import dotenv_values
@@ -163,6 +162,7 @@ async def select_group(ctx : discord.ext.commands.Context) -> Dict[str,Any] | No
     return None
 @bot.command()
 async def invite_member_to_group(ctx : discord.ext.commands.Context):
+    """Invite a member to a group with default role [Member]"""
     if ctx.channel.type == discord.ChannelType.private:
         user_id = str(ctx.author.id)
         us = TskUser(user_id, CLIENT)
@@ -208,6 +208,7 @@ async def invite_member_to_group(ctx : discord.ext.commands.Context):
                 await ctx.send("Group invite operation timed out please try again later",delete_after=20)
 
 async def member_selector(ctx : discord.ext.commands.Context,grp : Dict[str,Any]) -> Dict[str,Any] | None:
+    """Allows user to select a member and returns member dict"""
     user_id = str(ctx.author.id)
     try:
         await ctx.send("Please select a member no from the list below : ", delete_after=20)
@@ -240,6 +241,7 @@ async def member_selector(ctx : discord.ext.commands.Context,grp : Dict[str,Any]
 
 
 def role_validator(message : discord.Message) -> bool:
+    """Validates role input"""
     ct = message.content.lower()
     ct = ct[0].upper() + ct[1:]
     if ct in ['Owner','Moderator','Member']:
@@ -247,6 +249,7 @@ def role_validator(message : discord.Message) -> bool:
     return False
 @bot.command()
 async def assign_role(ctx: discord.ext.commands.Context):
+    """Assigns role to user"""
     if ctx.channel.type == discord.ChannelType.private:
         user_id = str(ctx.author.id)
         us = TskUser(user_id, CLIENT)
@@ -370,7 +373,7 @@ async def assign_group_channel(ctx: discord.ext.commands.Context):
                         usr = member
                 if usr:
                     if usr['role'] == 'Owner':
-                        await ctx.send("Do you want to set this channel as group channel ?",delete_after=20)
+                        await ctx.send("Do you want to set this channel as group channel ? (yes/no)",delete_after=20)
                         response = await bot.wait_for('message', check = lambda message: True if message.content.lower() in ["yes","no"] else False,timeout=20)
                         if response.content.lower() == "yes":
                             channel_id = ctx.channel.id
@@ -389,6 +392,7 @@ async def assign_group_channel(ctx: discord.ext.commands.Context):
                         await ctx.send("Sorry you do not have sufficient permissions to set group channel", delete_after=20)
             except asyncio.TimeoutError:
                 await ctx.send("Operation timed out ",delete_after=20)
+
 
 
 bot.run(TOKEN_DISCORD)

@@ -108,6 +108,7 @@ async def selector(ctx : discord.ext.commands.Context , get_task_name : bool = F
 
 @bot.event
 async def on_message(message : discord.Message):
+    """Process each user DM message"""
     await bot.process_commands(message)
     if message.channel.type == discord.ChannelType.private:
         if message.content.startswith('initialise'):

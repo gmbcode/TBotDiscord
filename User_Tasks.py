@@ -55,7 +55,6 @@ def save_to_db(user_id : str, db, client : DB_Client, nosync=False) -> bool | No
             return True
         return False
     except Exception as e:
-        raise e
         return None
 
 
