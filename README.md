@@ -6,7 +6,7 @@ A comprehensive Discord bot that integrates with Google Tasks to provide task ma
 
 ### Core Task Management
 - **Full Google Tasks Integration**: Complete synchronization with your Google Tasks account
-- **Task CRUD Operations**: Create, read, update, and delete tasks seamlessly with google tasks sync
+- **Task CRUD Operations**: Create, read, update, and delete tasks seamlessly with Google tasks sync
 - **Task Status Toggle**: Mark tasks as complete/incomplete with a single command
 - **Task Reminders**: Create custom task reminders
 - **Due Date Management**: Set and modify task due dates with validation
@@ -105,7 +105,7 @@ pip install asyncio
 ### 5. Mongo DB Structure 
 Create a database called as `TBot_DB` with the following collections : 
 - `auth` for storing user refresh tokens and OAuth credentials
-- `tasks` for storing a synced version of users google tasks
+- `tasks` for storing a synced version of users Google Tasks
 - `tasks_ns` for storing category and priority information
 - `reminders` for storing user reminders
 - `groups` for storing user groups
