@@ -15,7 +15,8 @@ A comprehensive Discord bot that integrates with Google Tasks to provide task ma
 - **Custom Categories**: Create and assign custom categories to tasks for better organization
 - **Priority System**: Assign priority levels (Low, Medium, High) to tasks
 - **Task View**: View tasks by various criteria including category and priority
-- **Gen AI based queries** : Type `query ` followed by your query in natural language
+- **Gen AI based queries** : Type `query ` followed by your query in natural language 
+- Note : Currently only task creation and a few more queries are supported in natural language
 ### Reminder System
 - **One-time Reminders**: Set individual reminders for specific tasks
 - **Recurring Reminders**: Create repeating reminders with customizable intervals (1-30 days)
