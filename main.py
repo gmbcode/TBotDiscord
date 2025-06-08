@@ -1,29 +1,33 @@
 import asyncio
 from typing import Tuple
 import discord
+import re
 from discord.ext import commands
 from dotenv import dotenv_values
 from Auth_Server import generate_auth_url
+from Test1 import response
 from User import User as TskUser
 from datetime import datetime, date, timedelta
 from Tasks import GoogleTasksClient
 from table2ascii import table2ascii
 from User_Tasks import sync_tasks_g2m, load_mongo_db, save_to_db
-from Misc_Methods import str_to_task, status_converter, iso_localizer
+from Misc_Methods import str_to_task, status_converter, iso_localizer,priority_map,PROMPT_1,PROMPT_2,PROMPT_3
 from Mongo_Access import DB_Client
+from google import genai
 from copy import deepcopy
 from pytz import common_timezones
 from pytz import timezone as tz
 from uuid import uuid4
 config = dotenv_values(".env")
 TOKEN_DISCORD = config["DISCORD_BOT_TOKEN"]
+GEMINI_API_KEY = config["GEMINI_API_KEY"]
 local_tz = config["LOCAL_TZ"]
 format_str = "Task Name Due Date(YYYY-MM-DD) Notes(if any)\nExample : my task 2025-05-30 Some details about my task"
 intents = discord.Intents.default()
 intents.message_content = True
 CLIENT = DB_Client()
 bot = commands.Bot(command_prefix="#", intents=intents)
-
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 @bot.event
 async def on_ready():
@@ -130,6 +134,110 @@ async def on_message(message : discord.Message):
                         pass
                     await asyncio.sleep(10)
                 await  message.channel.send("Authorisation cancelled")
+        elif message.content.startswith('query '):
+            user_id = str(message.author.id)
+            us = TskUser(user_id, CLIENT)
+            gclt = GoogleTasksClient(user_id, CLIENT)
+            query = message.content[6:]
+            if len(query) > 100:
+                query = query[:100]
+            query = re.sub('[^A-Za-z0-9 ]+','',query) # Sanitize user query
+            if us.user_exists():
+                response =  await ai_client.aio.models.generate_content(
+                            model="gemini-2.0-flash", contents=PROMPT_1+query
+                            )
+                t_out = response.text
+                t_out = t_out[0]
+                print(t_out)
+                if t_out == 'i':
+                    response1 = await ai_client.aio.models.generate_content(
+                        model="gemini-2.0-flash", contents=PROMPT_2+query
+                    )
+                    t_out = response1.text
+                    t_out = t_out[0]
+                    ctx = await bot.get_context(message)
+                    try :
+                        t_out = int(t_out)
+                        if 1 <= t_out <= 4:
+                            if t_out == 1:
+                                await ctx.invoke(bot.get_command("get_overdue_tasks"))
+                            elif t_out == 2:
+                                await ctx.invoke(bot.get_command("list_tasks"))
+                                return
+                            elif t_out == 3:
+                                await ctx.invoke(bot.get_command("list_tasklists"))
+                            else:
+                                await ctx.invoke(bot.get_command("list_reminders"))
+                        else:
+                            await message.channel.send("Failed processing query")
+                            return
+                    except ValueError:
+                        await message.channel.send("Failed processing query")
+                        return
+
+                elif t_out == 'a': # Currently only task creation is supported
+                    response1 = await ai_client.aio.models.generate_content(
+                        model="gemini-2.0-flash", contents=PROMPT_3 + query
+                    )
+                    t_out = response1.text
+
+                    def task_validator(message: str) -> bool:
+                        tokenized = message.split()
+                        index = 0
+                        d_index = 0
+                        d_toks = 0
+                        for token in tokenized:
+                            try:
+                                datetime.strptime(token, "%Y-%m-%d")
+                                d_toks += 1
+                                d_index = index
+                            except ValueError:
+                                pass
+                            index += 1
+                        if d_toks == 1:  # Check if only one date is present in input
+                            pass
+                        else:
+                            return False
+                        if d_index != 0:
+                            task_name = tokenized[0:d_index]
+                            task_name = "".join(task_name)
+                        else:
+                            return False
+                        task_due = datetime.strptime(tokenized[d_index], "%Y-%m-%d").date()
+                        today = date.today()
+                        if task_due < today:  # Date is in the past
+                            return False
+                        year = timedelta(days=365)
+                        max_spread = today + year
+                        if task_due > max_spread:  # Task is more than one year after
+                            return False
+                        return True
+                    if t_out == "invalid":
+                        await message.channel.send("Failed processing query")
+                        return
+                    try :
+                        if task_validator(t_out):
+                            tsk = str_to_task(t_out)
+                            tl = gclt.get_task_lists()[0]['id']
+                            gclt.create_task(task_list_id=tl,title=tsk[0],notes=tsk[1],due=tsk[2])
+                            await message.channel.send(f"Task {tsk[0]} created successfully")
+
+                        else:
+                            await message.channel.send("Failed processing query")
+                            return
+                    except ValueError:
+                        await message.channel.send("Failed processing query")
+                        return
+                    ctx = await bot.get_context(message)
+                    pass
+                else:
+                    await message.channel.send("Failed processing query")
+                    return
+            else:
+                await message.channel.send(f"Initialise by typing initialise first and register yourself")
+                return
+
+
 
 
 @bot.command()
@@ -166,6 +274,7 @@ async def list_tasks(ctx : discord.ext.commands.Context):
             if len(resp) == 0:
                 await ctx.channel.send("No tasks found")
                 return
+            resp.sort(key=lambda t: priority_map[t[5]], reverse=True)
             final_response = table2ascii(header=headings, body=resp)
             final_response = '```\n' + final_response + '\n```'
             chunks = [final_response[i:i + 2000] for i in
@@ -877,6 +986,7 @@ async def create_reminder(ctx : discord.ext.commands.Context):
 
 @bot.command()
 async def list_reminders(ctx : discord.ext.commands.Context):
+    """Function to list all the user's reminders"""
     if ctx.channel.type == discord.ChannelType.private:
         user_id = str(ctx.author.id)
         us = TskUser(user_id,CLIENT)
@@ -914,5 +1024,50 @@ async def list_reminders(ctx : discord.ext.commands.Context):
         else:
             await ctx.channel.send(f"Initialise by typing initialise first and register yourself", delete_after=30)
 
+@bot.command()
+async def get_overdue_tasks(ctx : discord.ext.commands.Context):
+    """Function to list all the users tasks , the tasklist and their due time"""
+    if ctx.channel.type == discord.ChannelType.private:
+        user_id = str(ctx.author.id)
+        us = TskUser(user_id,CLIENT)
+        if us.user_exists():
+            await ctx.channel.send(f"Loading task list for user {ctx.author.name} (Synced from Google Tasks)",
+                                   delete_after=10)
+            try:
+                clt = GoogleTasksClient(user_id,CLIENT)
+                tl = clt.get_task_lists()
+            except Exception as e:
+                await ctx.channel.send("Error fetching user tasks")
+                return
+            headings = ['Category','Task Name', 'Due Date', 'Tasklist', 'Status','Priority']
+            resp = []
+            sync_tasks_g2m(user_id, CLIENT)
+            ns_db = load_mongo_db(user_id, CLIENT, nosync = True)
+            ns_db = ns_db['user']['tasks']
+            for task_list in tl:
+                tr = clt.get_tasks(task_list['id'])['items']
+
+                for task in tr:
+                    if 'due' in task:
+                        f_date = datetime.fromisoformat(task['due']).astimezone()
+                        if f_date > tz('UTC').localize(datetime.now()):
+                            continue
+                        f_date = f_date.strftime("%B %d, %Y")
+                    else:
+                        continue
+                    current_task = list(filter(lambda t: t['id'] == task['id'], ns_db))[0]
+                    resp.append([current_task['category'],task['title'], f_date, task_list['title'], status_converter(task['status']), current_task['priority']])
+            if len(resp) == 0:
+                await ctx.channel.send("No such tasks found")
+                return
+            resp.sort(key=lambda t: priority_map[t[5]], reverse=True)
+            final_response = table2ascii(header=headings, body=resp)
+            final_response = '```\n' + final_response + '\n```'
+            chunks = [final_response[i:i + 2000] for i in
+                      range(0, len(final_response), 2000)]  # Split into 2000 sized chunks
+            for chunk in chunks:
+                await ctx.channel.send(chunk)
+        else:
+            await ctx.channel.send(f"Initialise by typing initialise first and register yourself")
 
 bot.run(TOKEN_DISCORD)

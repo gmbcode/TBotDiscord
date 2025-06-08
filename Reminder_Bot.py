@@ -132,6 +132,7 @@ class ReminderBot(commands.Bot):
                 return
 
     async def on_command_error(self, context: Context[BotT], exception: errors.CommandError) -> None:
+        """Handle random command errors"""
         if isinstance(exception, commands.CommandNotFound):
             pass
         else:

@@ -596,6 +596,7 @@ async def create_group_task(ctx: discord.ext.commands.Context):
 
 @bot.command()
 async def list_group_tasks(ctx : discord.ext.commands.Context):
+    """List a user's group tasks"""
     user_id = str(ctx.author.id)
     us = TskUser(user_id, CLIENT)
     try:

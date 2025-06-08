@@ -15,7 +15,7 @@ A comprehensive Discord bot that integrates with Google Tasks to provide task ma
 - **Custom Categories**: Create and assign custom categories to tasks for better organization
 - **Priority System**: Assign priority levels (Low, Medium, High) to tasks
 - **Task View**: View tasks by various criteria including category and priority
-
+- **Gen AI based queries** : Type `query ` followed by your query in natural language
 ### Reminder System
 - **One-time Reminders**: Set individual reminders for specific tasks
 - **Recurring Reminders**: Create repeating reminders with customizable intervals (1-30 days)
@@ -81,13 +81,16 @@ MONGO_DB_CLUSTER_URL = <your_mongo_db_cluster_url>
 MONGO_DB_ADMIN_USERNAME = "<your_mongo_db_admin_username>" 
 MONGO_DB_ADMIN_PASSWORD = "<your_mongo_db_admin_password>"
 
+# Generative AI Config
+GEMINI_API_KEY = "<your_gemini_api_key>"
+
 # Timezone Configuration ( Local timezone of server )
 LOCAL_TZ = "<your_local_timezone>"
 ```
 
 ### 4. Dependencies Installation
 
-Install the required Python packages:
+Install the required Python packages ( preferably in a fresh virtual environment ) :
 
 ```bash
 pip install discord.py
